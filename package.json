@@ -1,0 +1,9 @@
+{
+  "name": "bitbinder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BitBinder \u2014 interactive software developer roadmap and JavaScript playground",
+  "scripts": {
+    "dev": "netlify dev"
+  }
+}
