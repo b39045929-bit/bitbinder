@@ -1,32 +1,98 @@
 
-const headers = {
-  "Content-Type": "application/json",
+const HEADERS = {
+  "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
 
+const OPENROUTER_URL =
+  "https://openrouter.ai/api/v1/chat/completions";
+
+const MODEL = "openrouter/free";
+
+const SYSTEM_PROMPT = `
+Kamu adalah BitBinder AI Research Tutor.
+
+IDENTITAS:
+Kamu adalah asisten AI untuk belajar pemrograman, teknologi,
+sains, riset, dan pengetahuan umum. Kamu membantu pengguna
+dari tingkat pemula sampai tingkat lanjut.
+
+BAHASA DAN GAYA:
+- Gunakan Bahasa Indonesia secara natural.
+- Jawab langsung, jelas, dan tidak bertele-tele.
+- Sesuaikan kedalaman penjelasan dengan pertanyaan.
+- Jangan mengarang fakta, sumber, atau hasil pengujian.
+
+KEMAMPUAN:
+- Menjawab pertanyaan umum dan teknis.
+- Menjelaskan HTML, CSS, JavaScript, Python, dan bahasa lain.
+- Membantu debugging dan analisis kode.
+- Membuat contoh program.
+- Menjelaskan cybersecurity defensif, CTF, dan pengujian lab.
+- Melakukan riset menggunakan web search jika dibutuhkan.
+- Membandingkan informasi dari berbagai sumber.
+
+WEB SEARCH:
+- Kamu memiliki akses ke alat web search.
+- Gunakan pencarian untuk informasi terbaru, berita,
+  dokumentasi, referensi, dan pertanyaan yang membutuhkan
+  data dari internet.
+- Jangan mengaku telah mencari jika tidak melakukan pencarian.
+- Cantumkan sumber yang benar-benar digunakan.
+- Bedakan informasi terbaru dengan pengetahuan umum.
+
+FORMAT JAWABAN:
+- Gunakan Markdown yang valid.
+- Gunakan heading jika diperlukan.
+- Gunakan blok kode dengan bahasa yang sesuai.
+- Jangan membungkus code block dengan tanda kutip.
+- Tampilkan output program secara akurat.
+- Jelaskan kesalahan dan solusi secara terstruktur.
+- Jangan memotong jawaban di tengah kalimat.
+
+KEAMANAN:
+- Bahas topik teknis secara terbuka dan objektif.
+- Jangan menolak hanya karena topiknya kompleks atau sensitif.
+- Jangan membantu pencurian kredensial, malware, atau
+  serangan terhadap sistem tanpa izin.
+- Untuk pengujian keamanan, arahkan bantuan pada sistem
+  yang dimiliki pengguna atau yang memiliki izin pengujian.
+
+PENTING:
+Jangan mengarang hasil pencarian.
+Jangan mengarang output program.
+Jika tidak mengetahui sesuatu, katakan dengan jujur.
+`;
+
+function jsonResponse(statusCode, data) {
+  return {
+    statusCode,
+    headers: HEADERS,
+    body: JSON.stringify(data),
+  };
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers, body: "" };
+    return {
+      statusCode: 204,
+      headers: HEADERS,
+      body: "",
+    };
   }
 
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: "Method not allowed." }),
-    };
+    return jsonResponse(405, {
+      error: "Gunakan metode POST.",
+    });
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
-    return {
-      statusCode: 503,
-      headers,
-      body: JSON.stringify({
-        error: "OPENROUTER_API_KEY belum diatur di Netlify.",
-      }),
-    };
+    return jsonResponse(503, {
+      error: "OPENROUTER_API_KEY belum diatur di Netlify.",
+    });
   }
 
   let body;
@@ -34,80 +100,69 @@ exports.handler = async (event) => {
   try {
     body = JSON.parse(event.body || "{}");
   } catch {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: "JSON tidak valid." }),
-    };
+    return jsonResponse(400, {
+      error: "Format JSON tidak valid.",
+    });
   }
 
   const question = String(body.question || "").trim();
   const code = String(body.code || "");
 
   if (!question) {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: "Pertanyaan tidak boleh kosong." }),
-    };
+    return jsonResponse(400, {
+      error: "Pertanyaan tidak boleh kosong.",
+    });
   }
 
-  if (question.length > 3000 || code.length > 12000) {
-    return {
-      statusCode: 413,
-      headers,
-      body: JSON.stringify({ error: "Input terlalu panjang." }),
-    };
+  if (question.length > 6000 || code.length > 15000) {
+    return jsonResponse(413, {
+      error: "Pertanyaan atau kode terlalu panjang.",
+    });
   }
-
-  // Web search hanya aktif jika pertanyaan meminta pencarian/info terbaru.
-  const wantsSearch =
-    /\b(cari|search|telusuri|sumber|referensi|berita|terbaru|terkini|hari ini|sekarang|update|harga saat ini)\b/i
-      .test(question);
 
   const messages = [
     {
       role: "system",
-      content:
-        "Kamu adalah BitBinder AI Tutor, asisten pemrograman ramah untuk pemula Indonesia. Jawab dalam Bahasa Indonesia yang jelas. Jelaskan bertahap, berikan contoh kode jika relevan, dan jangan mengarang fakta atau hasil eksekusi kode. Jika tersedia hasil pencarian web, gunakan dan cantumkan sumbernya.",
+      content: SYSTEM_PROMPT,
     },
     {
       role: "user",
       content:
+        "PERTANYAAN PENGGUNA:\n" +
         question +
-        "\n\nKode JavaScript pengguna:\n" +
-        (code || "(tidak ada kode)"),
+        "\n\nKODE PENGGUNA:\n" +
+        (code || "(Tidak ada kode yang dilampirkan)"),
     },
   ];
 
   try {
-    const requestBody = {
-      model: "openrouter/free",
-      messages,
-      max_tokens: 1200,
-    };
+    const response = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://bitbinder.netlify.app",
+        "X-Title": "BitBinder AI Research Tutor",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
 
-    if (wantsSearch) {
-      requestBody.tools = [
-        { type: "openrouter:web_search" },
-      ];
-    }
+        // Web search tersedia untuk AI pada setiap pertanyaan.
+        // AI menentukan sendiri kapan pencarian diperlukan.
+        tools: [
+          {
+            type: "openrouter:web_search",
+          },
+        ],
 
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://bitbinder.netlify.app",
-          "X-Title": "BitBinder AI Tutor",
-        },
-        body: JSON.stringify(requestBody),
-      }
-    );
+        max_tokens: 2500,
+        temperature: 0.7,
+      }),
+    });
 
     const raw = await response.text();
+
     let data;
 
     try {
@@ -117,18 +172,34 @@ exports.handler = async (event) => {
     }
 
     if (!response.ok) {
-      return {
-        statusCode: 502,
-        headers,
-        body: JSON.stringify({
-          error:
-            data?.error?.message ||
-            `OpenRouter gagal dengan HTTP ${response.status}.`,
-        }),
-      };
+      const apiMessage =
+        data?.error?.message ||
+        `OpenRouter HTTP ${response.status}`;
+
+      let friendlyMessage = apiMessage;
+
+      if (response.status === 401) {
+        friendlyMessage =
+          "API key OpenRouter tidak valid. Periksa environment variable.";
+      } else if (response.status === 402) {
+        friendlyMessage =
+          "Saldo atau kredit OpenRouter tidak mencukupi.";
+      } else if (response.status === 429) {
+        friendlyMessage =
+          "Batas permintaan tercapai. Coba beberapa saat lagi.";
+      } else if (response.status >= 500) {
+        friendlyMessage =
+          "Layanan AI sedang mengalami gangguan. Coba lagi nanti.";
+      }
+
+      return jsonResponse(502, {
+        error: friendlyMessage,
+        provider_status: response.status,
+      });
     }
 
     const message = data?.choices?.[0]?.message;
+
     let answer = message?.content || "";
 
     if (Array.isArray(answer)) {
@@ -138,16 +209,13 @@ exports.handler = async (event) => {
         .join("\n");
     }
 
-    if (!answer.trim()) {
-      return {
-        statusCode: 502,
-        headers,
-        body: JSON.stringify({
-          error: "Model tidak mengembalikan jawaban teks.",
-        }),
-      };
+    if (typeof answer !== "string" || !answer.trim()) {
+      return jsonResponse(502, {
+        error: "AI tidak mengembalikan jawaban teks.",
+      });
     }
 
+    // Ambil sumber web jika disediakan oleh OpenRouter.
     const sources = (message?.annotations || [])
       .filter((item) => item.type === "url_citation")
       .map((item) => ({
@@ -156,19 +224,16 @@ exports.handler = async (event) => {
       }))
       .filter((item) => item.url);
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ answer, sources }),
-    };
-  } catch (error) {
-    return {
-      statusCode: 502,
-      headers,
-      body: JSON.stringify({
-        error: error.message || "Tidak dapat menghubungi OpenRouter.",
+    return jsonResponse(200, {
+      answer: answer.trim(),
+      sources,
+      model: data?.model || MODEL,
+    });
 
-      }),
-    };
+  } catch (error) {
+    return jsonResponse(502, {
+      error:
+        "Tidak dapat menghubungi OpenRouter. Periksa koneksi dan coba lagi.",
+    });
   }
 };
