@@ -84,7 +84,7 @@ exports.handler = async (event) => {
           "x-goog-api-key": apiKey,
         },
         body: JSON.stringify({
-          model: "gemini-3.7-flash",
+          model: "gemini-3.8-flash",
           input: prompt,
           system_instruction:
             "You are BitBinder AI Tutor. Be safe, accurate, and helpful.",
